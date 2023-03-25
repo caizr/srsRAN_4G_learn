@@ -305,6 +305,7 @@ bool rrc::plmn_search()
     logger.error("Unable to initiate PLMN search");
     return false;
   }
+  std::cout<<"rrc::plmn_search add_proc "<<std::endl;
   callback_list.add_proc(plmn_searcher);
   return true;
 }

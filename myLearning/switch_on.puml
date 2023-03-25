@@ -1,0 +1,171 @@
+@startuml
+
+main->ue:switch_on
+activate ue
+ue -> ue_stack_lte:switch_on
+activate ue_stack_lte
+ue_stack_lte -> queue_handle : try_push
+activate queue_handle
+queue_handle --> ue_stack_lte
+deactivate queue_handle
+ue_stack_lte --> ue
+deactivate ue_stack_lte
+ue --> main : return
+deactivate ue
+
+note over ue_stack_lte
+    run_thread会一直向
+    队列取出并执行任务
+end note
+
+->nas : switch_on
+activate nas
+
+note over state
+    <size:10>设置状态 deregistered
+    <size:10>子状态 plmn_search
+end note
+
+nas -> state : set_deregistered
+activate state
+state --> nas
+deactivate state
+deactivate nas
+
+note over nas
+<size:10>某个线程会调用ue_stack_lte::run_tti,然后把run_tti_impl->nas.run_tti
+<size:10>放进sync_task_queue中运行(似乎是同步而不是另开线程运行？确认一下）
+----
+<size:10>目前确认 ue_stack_lte::run_thread->task_sched.run_next_task()->task()
+<size:10> ->move_callback.h 178 call->...->run_tti
+end note
+
+->nas
+activate nas
+nas -> nas : start_plmn_selection_proc
+activate nas
+
+participant proc_t_nas_plmn_search_proc[
+<size:7>proc_t
+<size:5><nas::plmn_search_proc>
+]
+nas -> proc_t_nas_plmn_search_proc : launch
+activate proc_t_nas_plmn_search_proc
+participant nas_plmn_search_proc[
+<size:7>nas::
+<size:5>plmn_search_proc
+]
+note over proc_t_nas_plmn_search_proc
+ <size:10>设置运行状态on_going
+ <size:10>后面的线程就再次进来
+ <size:10>会受到影响
+end note
+proc_t_nas_plmn_search_proc->nas_plmn_search_proc: init
+
+activate nas_plmn_search_proc
+nas_plmn_search_proc->rrc : plmn_search
+  activate rrc
+      participant proc_t_rrc_plmn_search_proc[
+      <size:7>proc_t
+      <size:5><rrc::plmn_search_proc>
+      ]
+      rrc -> proc_t_rrc_plmn_search_proc: launch
+      activate proc_t_rrc_plmn_search_proc
+        participant rrc_plmn_search_proc[
+        <size:7>rrc::
+        <size:5>plmn_search_proc
+        ]
+        proc_t_rrc_plmn_search_proc -> rrc_plmn_search_proc:init
+
+        activate rrc_plmn_search_proc
+        participant proc_t_rrc_cell_search_proc[
+              <size:7>proc_t
+              <size:5><rrc::cell_search_proc,cell_search_ret_t>
+              ]
+              rrc_plmn_search_proc->proc_t_rrc_cell_search_proc: launch
+              activate proc_t_rrc_cell_search_proc
+                'rrc:cell_search_proc'
+                participant rrc_cell_search_proc[
+                        <size:7>rrc::
+                        <size:5>cell_search_proc
+                        ]
+                proc_t_rrc_cell_search_proc->rrc_cell_search_proc:init
+
+                activate rrc_cell_search_proc
+                note over rrc_cell_search_proc
+                    <size:10>设置状态phy_cell_search
+                end note
+                rrc_cell_search_proc-> : start_cell_search
+
+                rrc_cell_search_proc --> proc_t_rrc_cell_search_proc
+                note right: 还未深入研究
+                deactivate rrc_cell_search_proc
+
+                proc_t_rrc_cell_search_proc-->rrc_plmn_search_proc:return false
+
+              deactivate proc_t_rrc_cell_search_proc
+
+              rrc_plmn_search_proc->rrc_plmn_search_proc:step
+
+              activate rrc_plmn_search_proc
+                rrc_plmn_search_proc->proc_t_rrc_cell_search_proc:run
+                activate proc_t_rrc_cell_search_proc
+                  proc_t_rrc_cell_search_proc->proc_t_rrc_cell_search_proc:step
+                  activate proc_t_rrc_cell_search_proc
+                    proc_t_rrc_cell_search_proc->rrc_cell_search_proc:step
+                    activate rrc_cell_search_proc
+                      note over rrc_cell_search_proc
+                        <size:10>会查询该对象里面的state属性,目前
+                        <size:10>是phy_cell_search因此返回 yield
+                        <size:10>此外还有phy_cell_select,si_acquire
+                        <size:10>wait_measurement这些state
+                      end note
+                      rrc_cell_search_proc-->proc_t_rrc_cell_search_proc: return yield
+                      note over proc_t_rrc_cell_search_proc
+                        <size:10>由于yield,handle_outcome没有
+                        <size:10>任何反映,所以is_busy返回true
+                      end note
+                      proc_t_rrc_cell_search_proc->proc_t_rrc_cell_search_proc: return true
+                    deactivate rrc_cell_search_proc
+                      proc_t_rrc_cell_search_proc-->rrc_plmn_search_proc: return yield
+                  deactivate proc_t_rrc_cell_search_proc
+
+                deactivate proc_t_rrc_cell_search_proc
+                rrc_plmn_search_proc-->rrc_plmn_search_proc: return yield
+              deactivate rrc_plmn_search_proc
+              rrc_plmn_search_proc-->proc_t_rrc_plmn_search_proc: return yield
+        deactivate rrc_plmn_search_proc
+
+        note over proc_t_rrc_plmn_search_proc
+          <size:10> handle_outcome不
+          <size:10> 会对yield结果作处理
+        end note
+        proc_t_rrc_plmn_search_proc-->rrc:return true
+      deactivate proc_t_rrc_plmn_search_proc
+      rrc->proc_manager_list_t:add_proc (把plmn_searcher放进列表里)
+
+      activate proc_manager_list_t
+        note over proc_manager_list_t
+          <size:10>会把plmn_search放进proc_list.
+          <size:10>proc_list会在rrc_tti中唤起
+        end note
+        proc_manager_list_t-->rrc
+      deactivate proc_manager_list_t
+    rrc-->nas_plmn_search_proc:return true
+  deactivate rrc
+  nas_plmn_search_proc-->proc_t_nas_plmn_search_proc:return yield
+deactivate nas_plmn_search_proc
+
+proc_t_nas_plmn_search_proc-->nas:return true
+
+deactivate proc_t_nas_plmn_search_proc
+
+nas-->nas: return
+deactivate nas
+<--nas
+
+'等待下一次TTI
+
+
+
+@enduml

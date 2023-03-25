@@ -28,6 +28,7 @@
 #include "srsran/interfaces/ue_usim_interfaces.h"
 #include "srsue/hdr/stack/rrc/rrc_meas.h"
 #include <inttypes.h> // for printing uint64_t
+#include <iostream>
 
 #define Error(fmt, ...) rrc_ptr->logger.error("Proc \"%s\" - " fmt, name(), ##__VA_ARGS__)
 #define Warning(fmt, ...) rrc_ptr->logger.warning("Proc \"%s\" - " fmt, name(), ##__VA_ARGS__)
@@ -66,8 +67,10 @@ proc_outcome_t rrc::cell_search_proc::step()
       // Waits for cell select/search to complete
       return proc_outcome_t::yield;
     case state_t::si_acquire:
+      std::cout<<"si_acquire"<<std::endl;
       return step_si_acquire();
     case state_t::wait_measurement:
+      std::cout<<"wait_measurement"<<std::endl;
       return step_wait_measurement();
   }
   return proc_outcome_t::yield;
@@ -724,6 +727,7 @@ proc_outcome_t rrc::plmn_search_proc::init()
  */
 proc_outcome_t rrc::plmn_search_proc::step()
 {
+  std::cout<<"rrc::plmn_search_proc::step()"<<std::endl;
   if (rrc_ptr->cell_searcher.run()) {
     // wait for new TTI
     return proc_outcome_t::yield;
