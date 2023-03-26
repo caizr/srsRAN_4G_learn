@@ -1,0 +1,37 @@
+@startuml
+cell_search_proc -> phy_controller:start_cell_search
+participant phy
+participant sync
+activate phy_controller
+    phy_controller x->phy:cell_search
+    activate phy
+        phy->sync:scell_sync_stop
+        activate sync
+            note over sync
+                <size:10> 这里没有重点看, 强制停止一些任务
+            end note
+            sync --> phy
+        deactivate sync
+        ''' TODO: 需要补充stop的事情
+        phy->sync:cell_search_init
+        activate sync
+            sync -> sync_state:go_idle
+            activate sync_state
+            sync_state-->sync
+            deactivate sync_state
+            note over sync
+                <size:10> next_state=IDLE
+                <size:10> meas_stop()暂时没看
+                <size:10> rrc_proc_state
+                <size:10>   =PROC_SEARCH_START
+            end note
+            sync-->phy:true
+        deactivate sync
+    phy -->x phy_controller:?
+    deactivate phy
+phy_controller-->cell_search_proc:return false
+deactivate phy_controller
+
+
+
+@enduml
