@@ -28,9 +28,44 @@ activate phy_controller
             sync-->phy:true
         deactivate sync
     phy -->x phy_controller:?
+
+    phy->phy_cmd_proc:add_cmd
+    activate phy_cmd_proc
+        note over phy_cmd_proc
+            <size:10> lambda函数放进cmd_queue
+        end note
+
+    phy_cmd_proc-->phy
+    deactivate phy_cmd_proc
     deactivate phy
 phy_controller-->cell_search_proc:return false
 deactivate phy_controller
+
+'''
+note over phy_cmd_proc
+    <size:10> run_thread会自动取出
+    <size:10> cmd_queue中的任务并运行
+end note
+
+phy_cmd_proc->phy_cmd_proc:run_thread
+activate phy_cmd_proc
+phy_cmd_proc -> sync:wait_idle
+    activate sync
+        sync->sync_state:wait_idle
+        activate sync_state
+            note over sync_state
+                <size:10> 这里似乎是会阻塞, 等待
+                <size:10> cur_state为IDLE时返
+                <size:10> 回, 超过2000ms也返回
+            end note
+
+            sync_state-->sync:return true
+        deactivate sync_state
+
+        sync-->phy_cmd_proc:return
+    deactivate sync
+deactivate phy_cmd_proc
+
 
 
 

@@ -27,6 +27,7 @@
 
 #include <algorithm>
 #include <unistd.h>
+#include <iostream>
 
 #define Error(fmt, ...)                                                                                                \
   if (SRSRAN_DEBUG_ENABLED)                                                                                            \
@@ -221,7 +222,7 @@ bool sync::cell_search_init()
 rrc_interface_phy_lte::cell_search_ret_t sync::cell_search_start(phy_cell_t* found_cell, int earfcn)
 {
   std::unique_lock<std::mutex> ul(rrc_mutex);
-
+  std::cout<<"sync:: cell_search_start"<<std::endl;
   if (earfcn < 0) {
     Info("Cell Search: Start EARFCN index=%u/%zd", cellsearch_earfcn_index, worker_com->args->dl_earfcn_list.size());
   } else {
@@ -402,6 +403,7 @@ bool sync::cell_is_camping()
 
 bool sync::wait_idle()
 {
+  std::cout<<"wait_idle"<<std::endl;
   // Wait for SYNC thread to transition to IDLE (max. 2000ms)
   if (not phy_state.wait_idle(TIMEOUT_TO_IDLE_MS)) {
     Error("SYNC: Failed transitioning to IDLE");

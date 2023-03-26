@@ -24,6 +24,7 @@
 
 #include <condition_variable>
 #include <mutex>
+#include <iostream>
 
 namespace srsue {
 
@@ -42,6 +43,7 @@ public:
    */
   state_t run_state()
   {
+    std::cout<<"run_state"<<std::endl;
     std::lock_guard<std::mutex> lock(mutex);
     cur_state = next_state;
     if (state_setting) {
@@ -84,6 +86,7 @@ public:
   void go_idle()
   {
     // Do not wait when transitioning to IDLE to avoid blocking
+    std::cout<<"go_idle"<<std::endl;
     next_state = IDLE;
   }
   void run_cell_search()
@@ -112,6 +115,7 @@ public:
   }
   bool wait_idle(uint32_t timeout_ms)
   {
+    std::cout<<"wait_idle"<<std::endl;
     std::unique_lock<std::mutex> lock(mutex);
 
     // Avoid wasting time if the next state will not be IDLE
@@ -159,6 +163,7 @@ public:
 private:
   void go_state(state_t s)
   {
+    std::cout<<"go_state: "<<s<<std::endl;
     std::unique_lock<std::mutex> ul(mutex);
     next_state    = s;
     state_setting = true;

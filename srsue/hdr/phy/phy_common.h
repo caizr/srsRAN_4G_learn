@@ -42,6 +42,7 @@
 #include <mutex>
 #include <string.h>
 #include <vector>
+#include <iostream>
 
 namespace srsue {
 
@@ -64,7 +65,7 @@ public:
 
   ~phy_cmd_proc() { stop(); }
 
-  void add_cmd(std::function<void(void)> cmd) { cmd_queue.push(cmd); }
+  void add_cmd(std::function<void(void)> cmd) { std::cout<<"add_cmd"<<std::endl;cmd_queue.push(cmd); }
 
   void stop()
   {
@@ -77,6 +78,7 @@ public:
 private:
   void run_thread()
   {
+    std::cout<<"phy_common run_thread"<<std::endl;
     std::function<void(void)> cmd;
     while (running) {
       cmd = cmd_queue.wait_pop();
