@@ -64,6 +64,30 @@ phy_cmd_proc -> sync:wait_idle
 
         sync-->phy_cmd_proc:return
     deactivate sync
+
+    phy_cmd_proc->phy:reset (暂时没看,)
+    activate phy
+        phy-->phy_cmd_proc
+    deactivate phy
+    phy_cmd_proc->sync:cell_search_start
+    activate sync
+        note over sync
+            <size:10> rrc_proc_state=PROC_SEARCH_RUNNING
+            <size:10> 设置srate为1.92e6
+            <size:10> current_earfcn=3350
+            <size:10> 调用set_frequency()设置dl/ul频率并且
+            <size:10> 调用srsran_ue_sync_reset
+        end note
+        sync->sync_state:run_cell_search
+        activate sync_state
+            note over sync_state
+                <size:10> go_state(CELL_SEARCH)设置next_state(这里要展开notify)
+                <size:10>
+            end note
+            sync_state-->sync
+        deactivate sync_state
+        sync --> phy_cmd_proc:return cell_search_ret_t
+    deactivate sync
 deactivate phy_cmd_proc
 
 
