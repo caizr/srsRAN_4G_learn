@@ -1,6 +1,21 @@
 @startuml
+participant ue_stack_lte
+participant queue_handle
+participant rrc
+participant proc_t_rrc_cell_search_proc[
+              <size:7>proc_t
+              <size:5><rrc::cell_search_proc,cell_search_ret_t>
+              ]
+participant cell_search_proc[
+              <size:7>rrc::
+              <size:5>cell_search_proc
+              ]
 cell_search_proc -> phy_controller:start_cell_search
 participant phy
+participant event_dispatcher_cell_srch_res[
+            <size:7>event_dispatcher
+            <size:5><cell_srch_res>
+            ]
 participant sync
 activate phy_controller
     phy_controller x->phy:cell_search
@@ -27,7 +42,6 @@ activate phy_controller
             end note
             sync-->phy:true
         deactivate sync
-    phy -->x phy_controller:?
 
     phy->phy_cmd_proc:add_cmd
     activate phy_cmd_proc
@@ -37,8 +51,18 @@ activate phy_controller
 
     phy_cmd_proc-->phy
     deactivate phy_cmd_proc
+    phy x--> phy_controller:?
+
     deactivate phy
-phy_controller-->cell_search_proc:return false
+    phy_controller-->cell_search_proc:return false
+    phy_controller->event_dispatcher_cell_srch_res:subscribe
+    activate event_dispatcher_cell_srch_res
+        note over event_dispatcher_cell_srch_res
+            <size:10> 后续dispatch的时候会最终
+            <size:10> 调用到observer的react
+        end note
+        event_dispatcher_cell_srch_res-->phy_controller
+    deactivate event_dispatcher_cell_srch_res
 deactivate phy_controller
 
 '''
@@ -80,17 +104,123 @@ phy_cmd_proc -> sync:wait_idle
         end note
         sync->sync_state:run_cell_search
         activate sync_state
-            note over sync_state
-                <size:10> go_state(CELL_SEARCH)设置next_state(这里要展开notify)
-                <size:10>
-            end note
+            sync_state->sync_state:go_state
+            activate sync_state
+                note over sync,sync_state
+                    <size:10> next_state=CELL_SEARCH并通过条件变量阻塞
+                    <size:10> 等待sync下一次run_thread......
+                end note
+                sync x->sync:<color:blue>run_thread(另一个线程)
+                activate sync
+                    sync->sync_state:<color:blue>run_state通知并解除阻塞 \n<color:blue>并返回CELL_SEARCH
+                    sync_state-->sync_state
+            deactivate sync_state
+
+                    sync_state-->sync:<color:blue>return CELL_SEARCH
+'                deactivate sync
+                sync->sync:<color:blue>run_cell_search_state
+'                activate sync
+                    sync->search:<color:red> run (物理层小区搜索)
+                    note over sync
+                        <size:10> 这里需要补充
+                        <size:10> cell_search_ret为CELL_FOUND
+                    end note
+                    activate search
+                        search-->sync: <color:red>return search::CELL_FOUND
+                    deactivate search
+'                deactivate sync
+                sync->ue_stack_lte:bch_decoded_ok将信息送至上层解码\n送到RRC解码MIB信息(需要展开)
+                sync_state->sync_state:wait_state_run
+
+            activate sync_state
+                note over sync_state
+                    <size:10> run_state把state_running设置为true
+                    <size:10> 阻塞至通知变量且state_running不为true
+                end note
+                sync ->sync_state : <color:red>state_exit将state_running\n<color:red>置为false通知解锁并且\n<color:red>next_state置为IDLE
+                sync-->sync
+                deactivate sync
+                sync_state-->sync_state
+            deactivate sync_state
+                sync_state->sync_state:wait_state_next
+                activate sync_state
+                    note over sync_state
+                        <size:10> 等待run_state解锁,
+                        <size:10> 由sync run_thread发起
+                    end note
+                    sync x-> sync_state: run_state (需要分析返回什么)
+                    sync x-> sync: <color:blue>run_thread(再起一个线程)
+                    activate sync
+                        sync->sync_state:<color:blue>run_state使得cur_state=next_state
+                        note over sync
+                            <size:10>sync_state为IDLE run_idle_state(需要展开)
+                        end note
+                        sync-->sync
+                    deactivate sync
+                    sync_state-->sync_state
+                deactivate sync_state
             sync_state-->sync
         deactivate sync_state
-        sync --> phy_cmd_proc:return cell_search_ret_t
+        sync --> phy_cmd_proc:return cell_search_ret_t (还有参数found_cell)
     deactivate sync
+    phy_cmd_proc->ue_stack_lte:cell_search_complete
+    activate ue_stack_lte
+        ue_stack_lte->queue_handle:push
+        activate queue_handle
+            note over queue_handle
+                <size:10> 参考switch_on中的queue_hanele
+                <size:10> 不是同一个变量但是做法类似
+            end note
+            queue_handle-->ue_stack_lte
+        deactivate queue_handle
+        ue_stack_lte-->phy_cmd_proc
+    deactivate ue_stack_lte
 deactivate phy_cmd_proc
 
+note over ue_stack_lte
+    <size:10> after some time...
+    <size:10> run_thread, run_next_task
+end note
+ue_stack_lte x-> rrc:cell_search_complete
+activate rrc
+    rrc->phy_controller:cell_search_completed
+    activate phy_controller
+        phy_controller x->phy_controller: handle_cell_search_res
+        activate phy_controller
+            note over phy_controller
+                <size:10> task_sched.defer_task 等待ue_stack_lte 下一次ruh_thread
+                <size:10>  调用event_dispatcher<cell_srch_res> dispatch
+            end note
+            phy_controller-->phy_controller
+        deactivate phy_controller
+        phy_controller-->rrc
+    deactivate phy_controller
+rrc --> queue_handle
+deactivate rrc
 
+note over ue_stack_lte
+    <size:10> after some time...
+    <size:10> run_thread, run_next_task
+end note
+
+ue_stack_lte x->event_dispatcher_cell_srch_res:dispatch
+activate ue_stack_lte
+    event_dispatcher_cell_srch_res->proc_t_rrc_cell_search_proc:trigger
+    proc_t_rrc_cell_search_proc -> cell_search_proc:react
+    activate cell_search_proc
+        cell_search_proc->cell_search_proc:handle_cell_found
+        activate cell_search_proc
+            note over cell_search_proc
+                <size:10> state = state_t::phy_cell_select;
+            end note
+            cell_search_proc->phy_controller:<color:red>start_cell_select\n<color:red>开始小区选择
+            cell_search_proc-->cell_search_proc:return yield
+        deactivate cell_search_proc
+        cell_search_proc--> proc_t_rrc_cell_search_proc: return yield
+    deactivate cell_search_proc
+
+    ue_stack_lte x-> event_dispatcher_cell_srch_res:unsubscribe_all 清除之前subscribe的observers
+deactivate ue_stack_lte
 
 
 @enduml

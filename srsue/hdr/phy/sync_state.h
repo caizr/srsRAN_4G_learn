@@ -43,13 +43,14 @@ public:
    */
   state_t run_state()
   {
-    std::cout<<"run_state"<<std::endl;
+    std::cout<<"run_state : next state: "<<next_state<<std::endl;
     std::lock_guard<std::mutex> lock(mutex);
     cur_state = next_state;
     if (state_setting) {
       state_setting = false;
       state_running = true;
     }
+    std::cout<<"cvar.notify_all()"<<std::endl;
     cvar.notify_all();
     return cur_state;
   }
@@ -65,6 +66,7 @@ public:
     }
     state_running = false;
     cvar.notify_all();
+    std::cout<<"state exit, cur state:"<<cur_state<<"next state:"<<next_state<<std::endl;
   }
   void force_sfn_sync()
   {
@@ -168,7 +170,9 @@ private:
     next_state    = s;
     state_setting = true;
     while (state_setting) {
+      std::cout<<"cvar.waiting..."<<std::endl;
       cvar.wait(ul);
+      std::cout<<"cvar.wait done!"<<std::endl;
     }
   }
 
