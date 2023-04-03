@@ -1,4 +1,15 @@
 @startuml
+participant ue_stack_lte
+participant queue_handle
+participant rrc
+participant rrc_cell_search_proc[
+              <size:7>rrc::
+              <size:5>cell_search_proc
+              ]
+participant proc_t_rrc_cell_search_proc[
+              <size:7>proc_t
+              <size:5><rrc::cell_search_proc,cell_search_ret_t>
+              ]
 participant phy_controller
 participant phy_controller_selecting_cell[
     <size:10>phy_controller::
@@ -7,6 +18,7 @@ participant phy_controller_selecting_cell[
 participant phy
 participant sync
 participant phy_cmd_proc
+participant sync_state
 
 ->phy_controller:start_cell_select
 
@@ -22,7 +34,7 @@ phy_controller->phy_controller_selecting_cell:enter
                 <size:10> selected_cell.id selected_earfcn
                 <size:10> common.cell_is_selecting = true;
             end note
-            phy->phy_cmd_proc:add_cmd
+            phy->phy_cmd_proc:add_cmd 主要添加cell_select_start
             activate phy_cmd_proc
                 phy_cmd_proc-->phy
             deactivate phy_cmd_proc
@@ -33,8 +45,118 @@ phy_controller->phy_controller_selecting_cell:enter
     phy_controller_selecting_cell-->phy_controller
     deactivate phy_controller_selecting_cell
 
+note over phy_cmd_proc
+    <size:10> run_thread
+end note
 
+phy_cmd_proc->phy_cmd_proc:run_thread
+activate phy_cmd_proc
+    phy_cmd_proc->sync: cmd() (add_cmd中的函数)
+    activate sync
+        sync->sync:wait_idle
+        activate sync
+            sync-->sync
+        deactivate sync
+        sync->sync:cell_select_start
+        activate sync
+            note over sync
+                <size:10> sfn_sync.reset
+                <size:10> search.reset
+                <size:10> <color:red>还有很多需要展开说明
+            end note
+            sync->sync_state:run_sfn_sync
+                activate sync_state
+                    note over sync_state
+                        <size:10> 参考小区搜索中run_cell_search
+                        <size:10> <color:red>下一个sync的run_thread
+                        <size:10> <color:red>运行完SFN_SYNC的case后
+                        <size:10> <color:red>把状态置为CAMPING(待确认)
+                    end note
+                    sync_state-->sync:
+                deactivate sync_state
+                sync->ue_stack_lte:<color:red>in_sync (展开)
+                sync-->sync:return true
+        deactivate sync
+        sync->ue_stack_lte:cell_select_complete
+        activate ue_stack_lte
+            ue_stack_lte->queue_handle:push  <color:red>rrc.cell_select_complete
+                activate queue_handle
+                    queue_handle-->ue_stack_lte
+                deactivate queue_handle
+            ue_stack_lte-->sync
+        deactivate ue_stack_lte
 
+    deactivate sync
+deactivate phy_cmd_proc
 
-'        phy_controller_selecting_cell-->phy:return true
+note over ue_stack_lte
+    <size:10> after some time...
+    <size:10> run_thread, run_next_task
+end note
+
+ue_stack_lte x->rrc:cell_select_complete
+activate rrc
+    rrc->phy_controller:cell_selection_completed
+    activate phy_controller
+        phy_controller->phy_controller:trigger
+        activate phy_controller
+            note over phy_controller
+                <size:10> 过程复杂, 没细看，期间调用到
+                <size:10> is_cell_selected
+                <size:10> selecting_cell::wait_in_sync::enter
+            end note
+            phy_controller-->phy_controller
+        deactivate phy_controller
+        phy_controller-->rrc
+    deactivate phy_controller
+deactivate rrc
+
+note over ue_stack_lte
+    <size:10> after some time...
+    <size:10> run_thread, run_next_task
+end note
+
+rrc x->proc_t_rrc_cell_search_proc:react
+activate proc_t_rrc_cell_search_proc
+    note over proc_t_rrc_cell_search_proc
+        <size:10> 调用react过程可以参考cell_search
+        <size:10> 注意调用的不是同一个react
+    end note
+
+    note over proc_t_rrc_cell_search_proc
+        <size:10> rrc_ptr->phy->cell_is_camping()
+        <size:10> rrc_ptr->meas_cells.serving_cell().get_rsrp()
+        <size:10> <color:red>state = state_t::wait_measurement; 参考switch_on
+    end note
+    proc_t_rrc_cell_search_proc-->x rrc:return yield
+deactivate proc_t_rrc_cell_search_proc
+
+note over rrc
+    <size:10> 下一次run_tti会调用
+    <size:10> callback_list中的函数
+    <size:10> <color:blue>确认callback_list.run()的remove_if是否在等待返回true
+end note
+
+rrc x-> rrc_cell_search_proc:step
+activate rrc_cell_search_proc
+    rrc_cell_search_proc->rrc_cell_search_proc:step_wait_measurement
+    activate rrc_cell_search_proc
+        note over rrc_cell_search_proc
+            <size:10> case wait_measurement
+            <size:10> <color:red>rrc_ptr->meas_cells.serving_cell().get_rsrp()有效
+            <size:10> <color:red>rrc_ptr->meas_cells.serving_cell().has_sib1() 有SIB1直接返回成功
+            <size:10> <color:red>没有SIB1 rrc_ptr->si_acquirer.launch且state = state_t::si_acquire
+        end note
+
+        rrc_cell_search_proc->rrc_cell_search_proc:step
+        activate rrc_cell_search_proc
+            note over rrc_cell_search_proc
+                <size:10> case si_acquire
+            end note
+            rrc_cell_search_proc-->rrc_cell_search_proc
+        deactivate rrc_cell_search_proc
+
+    deactivate rrc_cell_search_proc
+    rrc_cell_search_proc -->x rrc
+deactivate rrc_cell_search_proc
 @enduml
