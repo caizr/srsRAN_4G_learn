@@ -43,14 +43,14 @@ public:
    */
   state_t run_state()
   {
-    std::cout<<"run_state : next state: "<<next_state<<std::endl;
+//    std::cout<<"run_state : next state: "<<next_state<<std::endl;
     std::lock_guard<std::mutex> lock(mutex);
     cur_state = next_state;
     if (state_setting) {
       state_setting = false;
       state_running = true;
     }
-    std::cout<<"cvar.notify_all()"<<std::endl;
+//    std::cout<<"cvar.notify_all()"<<std::endl;
     cvar.notify_all();
     return cur_state;
   }

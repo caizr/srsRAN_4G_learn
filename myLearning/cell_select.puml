@@ -1,0 +1,40 @@
+@startuml
+participant phy_controller
+participant phy_controller_selecting_cell[
+    <size:10>phy_controller::
+    <size:10>selecting_cell
+    ]
+participant phy
+participant sync
+participant phy_cmd_proc
+
+->phy_controller:start_cell_select
+
+phy_controller->phy_controller_selecting_cell:enter
+    activate phy_controller_selecting_cell
+        phy_controller_selecting_cell->phy:cell_select
+        activate phy
+            phy->sync:scell_sync_stop
+            sync-->phy
+            phy->sync:cell_select_init(展开)
+            sync-->phy:return true
+            note over phy
+                <size:10> selected_cell.id selected_earfcn
+                <size:10> common.cell_is_selecting = true;
+            end note
+            phy->phy_cmd_proc:add_cmd
+            activate phy_cmd_proc
+                phy_cmd_proc-->phy
+            deactivate phy_cmd_proc
+
+            phy-->phy_controller_selecting_cell:return true
+        deactivate phy
+
+    phy_controller_selecting_cell-->phy_controller
+    deactivate phy_controller_selecting_cell
+
+
+
+
+'        phy_controller_selecting_cell-->phy:return true
+@enduml
