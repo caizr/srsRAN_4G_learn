@@ -95,3 +95,37 @@ proc_outcome_t rrc::plmn_search_proc::step()
 ```
 ## 后续工作
 set_sib1后续接si_acquirer.trigger。mac::process_pdus()将任务放进列表。
+
+##
+si acquire成功之后，rrc_procedures.cc中的rrc::plmn_search_proc::step() 运行情况:
+```C++
+proc_outcome_t rrc::plmn_search_proc::step()
+{
+  std::cout<<"rrc::plmn_search_proc::step()"<<std::endl;
+  if (rrc_ptr->cell_searcher.run()) { // si acquire之后会跳出这个条件
+    // wait for new TTI
+    return proc_outcome_t::yield;
+  }
+  // ......
+  if (cell_search_fut.value()->last_freq == cell_search_ret_t::NO_MORE_FREQS) {
+    Info("completed PLMN search");
+    // 会运行此
+    return proc_outcome_t::success;
+  }
+  // ......
+}
+```
+再往下，会运行到stack_procedure.h中的run(), 删除proc_list中的任务, 注意这个任务是在rrc.cc中的rrc::plmn_search()中添加的:
+```C++
+bool rrc::plmn_search()
+{
+  if (not plmn_searcher.launch()) {
+    logger.error("Unable to initiate PLMN search");
+    return false;
+  }
+  std::cout<<"rrc::plmn_search add_proc "<<std::endl;
+  // 是这里添加的
+  callback_list.add_proc(plmn_searcher);
+  return true;
+}
+```
