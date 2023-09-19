@@ -26,6 +26,8 @@
 #include "srsran/srslog/detail/log_entry.h"
 #include "srsran/srslog/sink.h"
 #include <atomic>
+//#include <stdio.h>
+#include <string>
 
 namespace srslog {
 
@@ -119,6 +121,14 @@ public:
                                 store,
                                 log_name,
                                 log_tag}};
+    fmt::memory_buffer fmt_buf;
+    // caizr: print to terminal
+    entry.format_func(std::move(entry.metadata), fmt_buf);
+//    printf("%s",fmt_buf.data());
+//    std::stringstream ss;
+//    ss<<fmt_buf.data();
+    std::string cache_s = fmt_buf.data();
+    // caizr end
     backend.push(std::move(entry));
   }
 

@@ -120,6 +120,8 @@ public:
       return err_str;
     }
 
+    //caizr : flush to file right now!
+    fflush(handle);
     return {};
   }
 
