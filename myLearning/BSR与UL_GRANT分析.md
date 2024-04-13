@@ -235,3 +235,95 @@ int srsran_ra_tbs_from_idx(uint32_t tbs_idx, uint32_t n_prb)
 }
 ```
 至此，找到了UL GRANT赋值的地方。DCI的来源还需要进一步分析。
+## DCI来源分析
+还是cc_worker::work_ul函数，DCI的获取在此:
+```C++
+bool cc_worker::work_ul(srsran_uci_data_t* uci_data)
+{
+    //......
+    bool ul_grant_available = phy->get_ul_pending_grant(&sf_cfg_ul, cc_idx, &pid, &dci_ul);
+    //......
+}
+// phy_common.cc
+bool phy_common::get_ul_pending_grant(srsran_ul_sf_cfg_t* sf, uint32_t cc_idx, uint32_t* pid, srsran_dci_ul_t* dci)
+{
+  std::lock_guard<std::mutex> lock(pending_ul_grant_mutex);
+  bool                        ret           = false;
+  pending_ul_grant_t&         pending_grant = pending_ul_grant[cc_idx][sf->tti];
+
+  if (pending_grant.enable) {
+    Debug("Reading grant sf->tti=%d idx=%d", sf->tti, TTIMOD(sf->tti));
+    if (pid) {
+      *pid = pending_grant.pid;
+    }
+    // 这里获取DCI
+    if (dci) {
+      *dci = pending_grant.dci;
+    }
+    pending_grant.enable = false;
+    ret                  = true;
+  }
+
+  return ret;
+}
+```
+pending_grant的赋值进行溯源，是在set_ul_pending_grant中获取的:
+```C++
+void phy_common::set_ul_pending_grant(srsran_dl_sf_cfg_t* sf, uint32_t cc_idx, srsran_dci_ul_t* dci)
+{
+  std::lock_guard<std::mutex> lock(pending_ul_grant_mutex);
+
+  // Calculate PID for this SF->TTI
+  uint32_t            pid           = ul_pidof(tti_pusch_gr(sf), &sf->tdd_config);
+  pending_ul_grant_t& pending_grant = pending_ul_grant[cc_idx][tti_pusch_gr(sf)];
+
+  if (!pending_grant.enable) {
+    pending_grant.pid    = pid;
+    pending_grant.dci    = *dci;
+    pending_grant.enable = true;
+    Debug("Set ul pending grant for sf->tti=%d current_tti=%d, pid=%d", tti_pusch_gr(sf), sf->tti, pid);
+  } else {
+    Info("set_ul_pending_grant: sf->tti=%d, cc=%d already in use", sf->tti, cc_idx);
+  }
+}
+```
+查看set_ul_pending_grant的堆栈:
+```C++
+phy_common::set_ul_pending_grant(srsran_dl_sf_cfg_t* sf, uint32_t cc_idx, srsran_dci_ul_t* dci)
+cc_worker::decode_pdcch_ul()
+cc_worker::work_dl_regular()
+sf_worker::work_imp()
+```
+从这里看出，DCI是从PDCCH中得到，分析decode_pdcch_ul()中获取DCI是调用srsran_ue_dl_find_ul_dci:
+```C++
+// ue_dl.c
+int srsran_ue_dl_find_ul_dci(srsran_ue_dl_t*     q,
+                             srsran_dl_sf_cfg_t* sf,
+                             srsran_ue_dl_cfg_t* dl_cfg,
+                             uint16_t            rnti,
+                             srsran_dci_ul_t     dci_ul[SRSRAN_MAX_DCI_MSG])
+{
+  srsran_dci_msg_t dci_msg[SRSRAN_MAX_DCI_MSG];
+  uint32_t         nof_msg = 0;
+
+  if (rnti) {
+    // Copy the messages found in the last call to srsran_ue_dl_find_dl_dci()
+    nof_msg = SRSRAN_MIN(SRSRAN_MAX_DCI_MSG, q->pending_ul_dci_count);
+    memcpy(dci_msg, q->pending_ul_dci_msg, sizeof(srsran_dci_msg_t) * nof_msg);
+    q->pending_ul_dci_count = 0;
+
+    // Unpack DCI messages
+    for (uint32_t i = 0; i < nof_msg; i++) {
+      if (srsran_dci_msg_unpack_pusch(&q->cell, sf, &dl_cfg->cfg.dci, &dci_msg[i], &dci_ul[i])) {
+        ERROR("Unpacking UL DCI");
+        return SRSRAN_ERROR;
+      }
+    }
+
+    return nof_msg;
+
+  } else {
+    return 0;
+  }
+}
+```
