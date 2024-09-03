@@ -327,3 +327,113 @@ int srsran_ue_dl_find_ul_dci(srsran_ue_dl_t*     q,
   }
 }
 ```
+// dci.cc srsran_dci_msg_unpack_pusch:
+int srsran_dci_msg_unpack_pusch(srsran_cell_t*      cell,
+                                srsran_dl_sf_cfg_t* sf,
+                                srsran_dci_cfg_t*   cfg,
+                                srsran_dci_msg_t*   msg,
+                                srsran_dci_ul_t*    dci)
+{
+  // Initialize DCI
+  bzero(dci, sizeof(srsran_dci_ul_t));
+
+  dci->rnti     = msg->rnti;
+  dci->location = msg->location;
+  dci->format   = msg->format;
+
+  srsran_dci_cfg_t _dci_cfg;
+  if (!cfg) {
+    ZERO_OBJECT(_dci_cfg);
+    cfg = &_dci_cfg;
+  }
+
+#if SRSRAN_DCI_HEXDEBUG
+  dci->hex_str[0] = '\0';
+  srsran_vec_sprint_hex(dci->hex_str, sizeof(dci->hex_str), msg->payload, msg->nof_bits);
+  dci->nof_bits = msg->nof_bits;
+#endif /* SRSRAN_DCI_HEXDEBUG */
+
+  return dci_format0_unpack(cell, sf, cfg, msg, dci);
+}
+// dci_format0_unpack
+static int dci_format0_unpack(srsran_cell_t*      cell,
+                              srsran_dl_sf_cfg_t* sf,
+                              srsran_dci_cfg_t*   cfg,
+                              srsran_dci_msg_t*   msg,
+                              srsran_dci_ul_t*    dci)
+{
+  /* pack bits */
+  uint8_t* y = msg->payload;
+  uint32_t n_ul_hop;
+
+  if (cfg->cif_enabled) {
+    dci->cif         = srsran_bit_pack(&y, 3);
+    dci->cif_present = true;
+  }
+
+  if (*y++ != 0) {
+    INFO("DCI message is Format1A");
+    return SRSRAN_ERROR;
+  }
+
+  // Update DCI format
+  msg->format = SRSRAN_DCI_FORMAT0;
+
+  if (*y++ == 0) {
+    dci->freq_hop_fl = SRSRAN_RA_PUSCH_HOP_DISABLED;
+    n_ul_hop         = 0;
+  } else {
+    if (cell->nof_prb < 50) {
+      n_ul_hop         = 1; // Table 8.4-1 of 36.213
+      dci->freq_hop_fl = *y++;
+    } else {
+      n_ul_hop         = 2; // Table 8.4-1 of 36.213
+      dci->freq_hop_fl = y[0] << 1 | y[1];
+      y += 2;
+    }
+  }
+  /* unpack RIV according to 8.1 of 36.213 */
+  uint32_t riv         = srsran_bit_pack(&y, riv_nbits(cell->nof_prb) - n_ul_hop);
+  dci->type2_alloc.riv = riv;
+
+  /* unpack MCS according to 8.6 of 36.213 */
+  dci->tb.mcs_idx = srsran_bit_pack(&y, 5);
+  dci->tb.ndi     = *y++ ? true : false;
+
+  // TPC command for scheduled PUSCH
+  dci->tpc_pusch = srsran_bit_pack(&y, 2);
+
+  // Cyclic shift for DMRS
+  dci->n_dmrs = srsran_bit_pack(&y, 3);
+
+  // TDD fields
+  if (IS_TDD_CFG0) {
+    dci->ul_idx = srsran_bit_pack(&y, 2);
+    dci->is_tdd = true;
+  } else if (IS_TDD) {
+    dci->dai    = srsran_bit_pack(&y, 2);
+    dci->is_tdd = true;
+  }
+
+  // CQI request
+  if (cfg->multiple_csi_request_enabled && !cfg->is_not_ue_ss) {
+    dci->multiple_csi_request_present = true;
+    dci->multiple_csi_request         = srsran_bit_pack(&y, 2);
+  } else {
+    dci->cqi_request = *y++ ? true : false;
+  }
+
+  // SRS request
+  if (cfg->srs_request_enabled && !cfg->is_not_ue_ss) {
+    dci->srs_request_present = true;
+    dci->srs_request         = *y++ ? true : false;
+  }
+
+  if (cfg->ra_format_enabled) {
+    dci->ra_type_present = true;
+    dci->ra_type         = *y++ ? true : false;
+  }
+
+  return SRSRAN_SUCCESS;
+}
+```
