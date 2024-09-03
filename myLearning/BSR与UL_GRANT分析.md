@@ -326,7 +326,6 @@ int srsran_ue_dl_find_ul_dci(srsran_ue_dl_t*     q,
     return 0;
   }
 }
-```
 // dci.cc srsran_dci_msg_unpack_pusch:
 int srsran_dci_msg_unpack_pusch(srsran_cell_t*      cell,
                                 srsran_dl_sf_cfg_t* sf,
